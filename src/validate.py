@@ -47,7 +47,9 @@ LOSS_FOR_MODEL_PARAMS_EXCEED = 999.0
 HF_TOKEN = os.getenv("HF_TOKEN")
 IS_DOCKER_CONTAINER = os.getenv("IS_DOCKER_CONTAINER", False)
 
-LOCALE_LORA_PATH = "/opt/llama-factory/LLaMA-Factory/saves/Phi-3-mini-4k-instruct/task5/0.005"
+#LOCALE_LORA_PATH = os.getenv("LoRA_PATH")
+
+#LOCALE_LORA_PATH = "/opt/llama-factory/LLaMA-Factory/saves/Phi-3-mini-4k-instruct/task5/0.005"
 
 
 if not IS_DOCKER_CONTAINER:
@@ -146,10 +148,10 @@ def load_model(
     """
     直接从本地加载 adapter_config.json
     """
-    config_path = os.path.join(LOCALE_LORA_PATH, "adapter_config.json")
+    config_path = os.path.join(model_name_or_path, "adapter_config.json")
 
     if not os.path.exists(config_path):
-        logger.error(f"adapter_config.json not found in {LOCALE_LORA_PATH}")
+        logger.error(f"adapter_config.json not found in {model_name_or_path}")
         return None
 
     with open(config_path, "r", encoding="utf-8") as f:
@@ -167,10 +169,10 @@ def load_model(
 ## download_lora_repo 是用 hf的api去下载的
 
     # 直接加载 LoRA 适配器
-    logger.info(f"Loading LoRA adapter from {LOCALE_LORA_PATH}")
+    logger.info(f"Loading LoRA adapter from {model_name_or_path}")
     model = PeftModel.from_pretrained(
         model,
-        LOCALE_LORA_PATH,  # 这里改为本地路径
+        model_name_or_path,  # 这里改为本地路径
         device_map=None,
     )
 
