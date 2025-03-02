@@ -47,6 +47,9 @@ LOSS_FOR_MODEL_PARAMS_EXCEED = 999.0
 HF_TOKEN = os.getenv("HF_TOKEN")
 IS_DOCKER_CONTAINER = os.getenv("IS_DOCKER_CONTAINER", False)
 
+LOCALE_LORA_PATH = "/opt/llama-factory/LLaMA-Factory/saves/Phi-3-mini-4k-instruct/task5/0.005"
+
+
 if not IS_DOCKER_CONTAINER:
     import git  # only import git in non-docker container environment because it is not installed in docker image
 
@@ -61,6 +64,8 @@ if HF_TOKEN is None:
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True,
 )
+
+##这里应该是下载 evl数据的，就用本地的数据就行了；
 def download_file(url):
     try:
         # Send a GET request to the signed URL
@@ -91,6 +96,7 @@ def download_file(url):
         raise e
 
 
+##没有需要改的
 def load_tokenizer(model_name_or_path: str) -> AutoTokenizer:
     tokenizer = AutoTokenizer.from_pretrained(
         model_name_or_path,
@@ -113,6 +119,7 @@ def load_tokenizer(model_name_or_path: str) -> AutoTokenizer:
     return tokenizer
 
 
+##应该也没有需要改的
 def load_model(
     model_name_or_path: str, lora_only: bool, revision: str, val_args: TrainingArguments
 ) -> Trainer:
@@ -129,34 +136,63 @@ def load_model(
         device_map=None,
     )
     # check whether it is a lora weight
-    if download_lora_config(model_name_or_path, revision):
-        logger.info("Repo is a lora weight, loading model with adapter weights")
-        with open("lora/adapter_config.json", "r") as f:
-            adapter_config = json.load(f)
-        base_model = adapter_config["base_model_name_or_path"]
-        model = AutoModelForCausalLM.from_pretrained(
-            base_model, token=HF_TOKEN, **model_kwargs
-        )
-        # download the adapter weights
-        download_lora_repo(model_name_or_path, revision)
-        model = PeftModel.from_pretrained(
-            model,
-            "lora",
-            device_map=None,
-        )
-        model = model.merge_and_unload()
-        logger.info("Loaded model with adapter weights")
+## download_lora_config 是用 hf的api去下载的
+#    if download_lora_config(model_name_or_path, revision):
+#        logger.info("Repo is a lora weight, loading model with adapter weights")
+#        with open("lora/adapter_config.json", "r") as f:
+#            adapter_config = json.load(f)
+##这里的 base_model_name_or_path 比如是 microsoft/Phi-3-mini-4k-instruct
+##上面的model_name_or_path 比如是 jerseyjerry/task-5-microsoft-Phi-3-mini-4k-instruct-20250301
+    """
+    直接从本地加载 adapter_config.json
+    """
+    config_path = os.path.join(LOCALE_LORA_PATH, "adapter_config.json")
+
+    if not os.path.exists(config_path):
+        logger.error(f"adapter_config.json not found in {LOCALE_LORA_PATH}")
+        return None
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        adapter_config = json.load(f)
+    
+    logger.info("Loaded LoRA config successfully")
+
+
+    base_model = adapter_config["base_model_name_or_path"]
+    # 直接加载本地的基础模型
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model, token=HF_TOKEN, **model_kwargs
+    )
+        # download the adapter weights 
+## download_lora_repo 是用 hf的api去下载的
+
+    # 直接加载 LoRA 适配器
+    logger.info(f"Loading LoRA adapter from {LOCALE_LORA_PATH}")
+    model = PeftModel.from_pretrained(
+        model,
+        LOCALE_LORA_PATH,  # 这里改为本地路径
+        device_map=None,
+    )
+
+#       download_lora_repo(model_name_or_path, revision)
+#        model = PeftModel.from_pretrained(
+#            model,
+#            "lora",
+#            device_map=None,
+#        )
+    model = model.merge_and_unload()
+    logger.info("Loaded model with adapter weights")
     # assuming full fine-tuned model
-    else:
-        if lora_only:
-            logger.error(
-                "Repo is not a lora weight, but lora_only flag is set to True. Will mark the assignment as failed"
-            )
-            return None
-        logger.info("Repo is a full fine-tuned model, loading model directly")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name_or_path, token=HF_TOKEN, **model_kwargs
-        )
+#    else:
+#        if lora_only:
+#            logger.error(
+#                "Repo is not a lora weight, but lora_only flag is set to True. Will mark the assignment as failed"
+#            )
+#            return None
+#        logger.info("Repo is a full fine-tuned model, loading model directly")
+#        model = AutoModelForCausalLM.from_pretrained(
+#            model_name_or_path, token=HF_TOKEN, **model_kwargs
+#        )
 
     if "output_router_logits" in model.config.to_dict():
         logger.info("set output_router_logits as True")
@@ -171,6 +207,7 @@ def load_model(
     return model
 
 
+##这里可以删掉
 def is_latest_version(repo_path: str):
     """
     Check if the current branch is up-to-date with the remote main branch.
